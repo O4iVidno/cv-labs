@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.DS_Store
+docs/
+src/make_testdata.py
+results/bench.csv
