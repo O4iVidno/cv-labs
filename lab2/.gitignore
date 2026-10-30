@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+.DS_Store
+docs/
+data/
+results/ORB/video/
+results/SIFT/video/
+results/numbered.mp4
+src/track_ref.py
+
+# старые картинки, заменены новыми и в отчете не используются
+results/SIFT/frame_100_with_border_SIFT.png
+results/SIFT/grid_my_video_SIFT.png
+results/ORB/grid_my_video_ORB.png
+
+# картинки, которых нет в отчете
+results/ORB/*.png
+!results/ORB/keypoints_ref_ORB.png
+!results/ORB/matches_all_100_ORB.png
+!results/ORB/matches_lowe_100_ORB.png
+results/SIFT/border_100_SIFT.png
+results/SIFT/keypoints_100_SIFT.png
