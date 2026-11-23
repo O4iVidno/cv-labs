@@ -1,0 +1,5 @@
+{
+  "zero_equals_bicubic": true,
+  "one_equals_stock": true,
+  "mixed_keeps_background": true
+}

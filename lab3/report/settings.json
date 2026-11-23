@@ -1,0 +1,11 @@
+{
+  "mode": "full",
+  "model": "stabilityai/stable-diffusion-x4-upscaler",
+  "device": "cuda",
+  "seed": 42,
+  "steps": 25,
+  "scale": 4,
+  "noise_level": 20,
+  "prompt": "",
+  "guidance_scale": 1.0
+}
