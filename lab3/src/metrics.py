@@ -21,12 +21,15 @@ def load_metrics():
 
 
 def psnr(difference):
+    # Квадрат не дает положительным и отрицательным ошибкам погасить друг друга
     squared_error = difference ** 2
     mean_squared_error = float(np.mean(squared_error))
 
+    # Бесконечный PSNR означает точное совпадение пикселей
     if mean_squared_error == 0:
         score = float('inf')
     else:
+        # Сравниваем максимальную и среднюю квадратичную ошибку в децибелах
         peak_squared = 255 ** 2
         score = float(10 * np.log10(peak_squared / mean_squared_error))
 
@@ -40,10 +43,10 @@ def image_tensor(image):
     pixels = pixels / 255
     tensor = torch.from_numpy(pixels)
 
-    # Перестановка осей из H × W × C в C × H × W
+    # В фото каналы идут последними, а модели PyTorch ждут их перед высотой и шириной
     tensor = tensor.permute(2, 0, 1)
 
-    # Добавление первой оси для количества картинок
+    # Добавляем ось батча из одной картинки и получаем 1 × C × H × W
     tensor = tensor.unsqueeze(0)
 
     return tensor
@@ -52,6 +55,7 @@ def image_tensor(image):
 def measure(result, reference, mask, lpips_model, clip_iqa_model):
     import torch
 
+    # Переходим к float, чтобы разность пикселей могла быть отрицательной
     result_pixels = np.asarray(result, dtype=np.float32)
     reference_pixels = np.asarray(reference, dtype=np.float32)
     difference = result_pixels - reference_pixels
@@ -67,6 +71,7 @@ def measure(result, reference, mask, lpips_model, clip_iqa_model):
     reference_lpips = reference_tensor * 2 - 1
 
     psnr_full = psnr(difference)
+    # При пустой маске оценка выбранной области остается пустой
     psnr_mask = None
     has_selected_pixels = selected.any()
     if has_selected_pixels:
@@ -77,8 +82,10 @@ def measure(result, reference, mask, lpips_model, clip_iqa_model):
     with torch.inference_mode():
         lpips_full = lpips_model(result_lpips, reference_lpips).item()
         clip_iqa_score = clip_iqa_model(result_tensor).item()
+        # Сбрасываем состояние CLIP-IQA перед следующей картинкой
         clip_iqa_model.reset()
 
+        # Если маска покрывает весь кадр, используем уже посчитанный LPIPS
         if selected.all():
             lpips_crop = lpips_full
         elif has_selected_pixels:
@@ -91,6 +98,7 @@ def measure(result, reference, mask, lpips_model, clip_iqa_model):
 
             crop_width = right - left
             crop_height = bottom - top
+            # Слишком маленькая вырезка не пройдет через слои AlexNet
             if crop_width >= 32 and crop_height >= 32:
                 result_crop = result_lpips[:, :, top:bottom, left:right]
                 reference_crop = reference_lpips[:, :, top:bottom, left:right]

@@ -4,6 +4,7 @@ from PIL import Image
 
 MODEL_ID = 'stabilityai/stable-diffusion-x4-upscaler'
 SCALE = 4
+# Уровень шума, который модель добавляет к маленькому входному фото
 NOISE_LEVEL = 20
 
 
@@ -17,9 +18,11 @@ def load_model(device):
     if device.type == 'cuda':
         if not torch.cuda.is_available():
             raise RuntimeError('CUDA недоступна. Проверьте видеокарту и драйвер через nvidia-smi.')
+        # Половинная точность экономит память видеокарты
         dtype = torch.float16
         variant = 'fp16'
 
+    # Загружаем уже обученную модель с готовыми весами
     model = StableDiffusionUpscalePipeline.from_pretrained(
         MODEL_ID,
         use_safetensors=True,
@@ -39,13 +42,16 @@ def load_model(device):
 def bicubic(image):
     width, height = image.size
     output_size = (width * SCALE, height * SCALE)
+    # Бикубическая копия служит фоном во всех режимах
     background = image.resize(output_size, Image.Resampling.BICUBIC)
     return background
 
 
 def upscale_mask(mask, size):
+    # Переводим значения 0 и 1 в черный и белый для Pillow
     mask_pixels = np.asarray(mask, dtype=np.uint8) * 255
     mask_image = Image.fromarray(mask_pixels)
+    # Ближайший сосед сохраняет жесткую границу маски
     resized_mask = mask_image.resize(size, Image.Resampling.NEAREST)
     return resized_mask
 
@@ -63,15 +69,17 @@ def compose(result, background, mask):
 def run_model(model, image, *, seed, steps, after_step=None):
     import torch
 
+    # Один seed дает одинаковый стартовый шум для сравнения масок
     generator = torch.Generator(device='cpu')
     generator.manual_seed(seed)
 
-    # При запуске модели градиенты для обучения не нужны
+    # Запускаем готовую модель без расчета градиентов
     with torch.inference_mode():
         output = model(
             prompt='',
             image=image,
             generator=generator,
+            # Число шагов DDIM, на каждом меняется латент картинки
             num_inference_steps=steps,
             guidance_scale=1.0,
             noise_level=NOISE_LEVEL,
@@ -100,6 +108,7 @@ def upscale_masked(model, image, mask, *, seed, steps):
     device = model.unet.device
     dtype = model.unet.dtype
 
+    # Подготавливаем бикубический фон для энкодера VAE
     pixels = model.image_processor.preprocess(background)
     pixels = pixels.to(device=device, dtype=model.vae.dtype)
 
@@ -113,7 +122,7 @@ def upscale_masked(model, image, mask, *, seed, steps):
     if background_latent.shape[-2:] != mask.shape:
         raise RuntimeError('Размер латента фона отличается от размера маски.')
 
-    # Одна маска применяется ко всем каналам латента
+    # Добавляем оси батча и каналов, чтобы одна маска работала для всех каналов
     mask_values = mask.astype(bool)
     latent_mask = torch.as_tensor(mask_values, device=device)
     latent_mask = latent_mask.unsqueeze(0)
@@ -127,6 +136,7 @@ def upscale_masked(model, image, mask, *, seed, steps):
     background_noise = background_noise.to(device=device, dtype=dtype)
 
     scheduler = model.scheduler
+    # Отдельный шедулер добавляет шум к фону по тому же расписанию DDIM
     scheduler_type = type(scheduler)
     background_scheduler = scheduler_type.from_config(scheduler.config)
     masked_steps = []
@@ -137,21 +147,25 @@ def upscale_masked(model, image, mask, *, seed, steps):
 
         # На последнем шаге подставляется чистый фон
         replacement = background_latent
+        # Уровень шума фона соответствует входу следующего шага
         if next_step < len(timesteps):
             next_timestep = timesteps[next_step:next_step + 1]
             replacement = background_scheduler.add_noise(
                 background_latent, background_noise, next_timestep
             )
 
-        # Diffusers использует этот же тензор на следующем шаге
+        # Под единицами оставляем результат модели, под нулями подставляем фон
         combined_latents = torch.where(latent_mask, latents, replacement)
+        # Перезаписываем тензор, который Diffusers передаст на следующий шаг
         latents.copy_(combined_latents)
         masked_steps.append(step)
 
     result = run_model(model, image, seed=seed, steps=steps, after_step=replace_background)
+    # Проверяем, что подстановка сработала после каждого шага DDIM
     number_of_replacements = len(masked_steps)
     if number_of_replacements != steps:
         raise RuntimeError(f'Фон подставлен {number_of_replacements} раз, ожидалось {steps}.')
 
+    # Повторяем сборку в RGB, чтобы VAE не изменил пиксели фона
     combined = compose(result, background, mask)
     return combined

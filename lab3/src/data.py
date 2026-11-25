@@ -48,6 +48,7 @@ def make_masks(size, box):
     mixed = np.zeros((h, w), dtype=np.uint8)
     # В NumPy сначала строки (y), потом столбцы (x)
     mixed[top:bottom, left:right] = 1
+    # Нули оставляют бикубический фон, единицы включают модель на всем кадре
     zero = np.zeros_like(mixed)
     one = np.ones_like(mixed)
     masks = {'zero': zero, 'one': one, 'mixed': mixed}
@@ -81,6 +82,7 @@ def read_image(archive, name):
         # Сравнение по имени файла без папок внутри ZIP
         filename = Path(entry).name
         if filename == name:
+            # Читаем фото прямо без распаковки на диск
             image_bytes = archive.read(entry)
             with Image.open(BytesIO(image_bytes)) as image:
                 rgb = image.convert('RGB')
@@ -90,6 +92,7 @@ def read_image(archive, name):
 
 
 def crop_pair(hr, bicubic, unknown):
+    # Ищем общую область в координатах маленьких изображений
     w = min(hr.width // SCALE, bicubic.width, unknown.width)
     h = min(hr.height // SCALE, bicubic.height, unknown.height)
     if min(w, h) < PATCH_SIZE:
@@ -134,14 +137,15 @@ def degrade_realesrgan(image, seed):
         noisy_pixels = np.clip(noisy_pixels, 0, 255).astype(np.uint8)
         image = Image.fromarray(noisy_pixels)
 
-        # JPEG записывается в память
-        buffer = BytesIO()
         jpeg_quality = int(rng.integers(45, 91))
-        image.save(buffer, format='JPEG', quality=jpeg_quality)
-        buffer.seek(0)
-        with Image.open(buffer) as compressed:
-            image = compressed.convert('RGB')
+        # Временная папка удалится после чтения JPEG
+        with TemporaryDirectory() as temporary_dir:
+            jpeg_path = Path(temporary_dir) / 'degraded.jpg'
+            image.save(jpeg_path, format='JPEG', quality=jpeg_quality)
+            with Image.open(jpeg_path) as compressed:
+                image = compressed.convert('RGB')
 
+    # Приводим синтетический вход к тому же размеру, что и входы из DIV2K
     degraded = image.resize(target_size, Image.Resampling.BICUBIC)
     return degraded
 

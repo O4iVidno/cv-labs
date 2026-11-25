@@ -22,6 +22,7 @@ def smoke_case():
     with Image.open(photo_path) as photo:
         rgb = photo.convert('RGB')
 
+    # Готовим эталон для быстрого теста, затем уменьшаем его в четыре раза
     reference = rgb.resize((256, 256), Image.Resampling.LANCZOS)
     image = reference.resize((64, 64), Image.Resampling.BICUBIC)
     masks = make_masks(image.size, (17, 10, 48, 39))
@@ -30,6 +31,7 @@ def smoke_case():
 
 
 def save_comparison(folder, case, outputs):
+    # Лист сравнения состоит из двух рядов по три изображения
     size, gap, caption = 256, 8, 25
     width = 3 * size + 4 * gap
     height = 2 * (size + caption) + 3 * gap
@@ -52,6 +54,7 @@ def save_comparison(folder, case, outputs):
         y = gap + row * (size + caption + gap)
         draw.text((x, y), title, fill='#111111', font=font)
         method = Image.Resampling.LANCZOS
+        # Показываем пиксели маленького входа и четкую границу маски
         if index in (0, 2):
             method = Image.Resampling.NEAREST
         tile = image.resize((size, size), method)
@@ -70,6 +73,7 @@ def check_masks(model, case, outputs, folder, *, seed, steps):
     stock = np.asarray(baseline)
 
     mixed_mask = upscale_mask(case.masks['mixed'], expected.size)
+    # В смешанном режиме сравниваем фон только за пределами маски
     outside = np.asarray(mixed_mask) == 0
     zero_matches = np.array_equal(zero, background)
     one_matches = np.array_equal(one, stock)
@@ -127,6 +131,7 @@ def run_experiment(mode, data_dir, out_dir, *, seed, steps, device):
             mask_image = Image.fromarray(mask * 255)
             mask_image.save(folder / f'mask_{name}.png')
 
+            # Замеряем апскейл отдельно от сохранения PNG и расчета метрик
             start = perf_counter()
             result = upscale_masked(model, case.image, mask, seed=seed, steps=steps)
             elapsed = round(perf_counter() - start, 3)
@@ -146,6 +151,7 @@ def run_experiment(mode, data_dir, out_dir, *, seed, steps, device):
                     'seconds': elapsed,
                 }
                 row.update(scores)
+                # Дописываем строку сразу после замера, чтобы сохранить уже готовые оценки
                 with metrics_path.open('a', encoding='utf-8', newline='') as table:
                     writer = csv.DictWriter(table, fieldnames=CSV_FIELDS)
                     writer.writerow(row)
@@ -167,6 +173,7 @@ def main():
     parser.add_argument('--device', choices=('cuda', 'cpu'), default='cuda')
     args = parser.parse_args()
     steps = args.steps
+    # Число шагов по умолчанию зависит от режима, его можно задать через --steps
     if steps is None:
         if args.mode == 'smoke':
             steps = 4
