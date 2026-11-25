@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 from datetime import datetime
+from os import environ
 from pathlib import Path
 from time import perf_counter
 
@@ -31,34 +32,38 @@ def smoke_case():
 
 
 def save_comparison(folder, case, outputs):
-    # Лист сравнения состоит из двух рядов по три изображения
     size, gap, caption = 256, 8, 25
-    width = 3 * size + 4 * gap
-    height = 2 * (size + caption) + 3 * gap
-    board = Image.new('RGB', (width, height), '#f4f4f4')
-    draw = ImageDraw.Draw(board)
-    font = ImageFont.load_default(size=16)
     mixed_mask = upscale_mask(case.masks['mixed'], case.reference.size)
     tiles = (
-        ('LR input', case.image),
-        ('HR reference', case.reference),
-        ('Mixed mask', mixed_mask),
-        ('All zeros / bicubic', outputs['zero']),
-        ('All ones / full SR', outputs['one']),
-        ('Mixed / masked SR', outputs['mixed']),
+        ('Оригинал', case.reference),
+        ('Уменьшенное фото', case.image),
+        ('Смешанная маска', mixed_mask),
+        ('Бикубическая копия', outputs['zero']),
+        ('Модель на всем кадре', outputs['one']),
+        ('Модель по маске', outputs['mixed']),
     )
+
+    # Эталон, вход, маска и три результата идут в один ряд
+    width = len(tiles) * size + (len(tiles) + 1) * gap
+    height = size + caption + 2 * gap
+    board = Image.new('RGB', (width, height), '#f4f4f4')
+    draw = ImageDraw.Draw(board)
+    # Arial поддерживает русские подписи
+    font_file = 'Arial.ttf'
+    windows_dir = environ.get('WINDIR')
+    if windows_dir:
+        font_file = Path(windows_dir) / 'Fonts' / font_file
+    font = ImageFont.truetype(font_file, size=16)
+
     for index, (title, image) in enumerate(tiles):
-        column = index % 3
-        row = index // 3
-        x = gap + column * (size + gap)
-        y = gap + row * (size + caption + gap)
-        draw.text((x, y), title, fill='#111111', font=font)
+        x = gap + index * (size + gap)
+        draw.text((x, gap), title, fill='#111111', font=font)
         method = Image.Resampling.LANCZOS
         # Показываем пиксели маленького входа и четкую границу маски
-        if index in (0, 2):
+        if index in (1, 2):
             method = Image.Resampling.NEAREST
         tile = image.resize((size, size), method)
-        board.paste(tile, (x, y + caption))
+        board.paste(tile, (x, gap + caption))
     board.save(folder / 'comparison.png')
 
 
